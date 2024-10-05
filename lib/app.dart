@@ -5,7 +5,7 @@ import 'home_page.dart';
 class MyApp extends StatelessWidget {
   final List<CameraDescription> cameras;
 
-  const MyApp({Key? key, required this.cameras}) : super(key: key);
+  const MyApp({super.key, required this.cameras});
 
   @override
   Widget build(BuildContext context) {
