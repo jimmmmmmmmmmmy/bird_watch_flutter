@@ -14,6 +14,12 @@
 │   ├── gradlew.bat
 │   ├── local.properties
 │   └── settings.gradle
+├── assets
+│   ├── labels.txt
+│   └── mobilenet_v3_large.tflite
+├── bugs_n_stuff
+│   ├── camera_not_loading.txt
+│   └── camera_page_rotation.txt
 ├── build
 │   ├── 5ff7391351dfe546e460131384cbc532
 │   │   ├── _composite.stamp
@@ -27,8 +33,8 @@
 │       ├── iphoneos
 │       └── pod_inputs.fingerprint
 ├── directory_structure.txt
-├── filelist.txt
 ├── flutter_application_1.iml
+├── full_path_tree.txt
 ├── ios
 │   ├── Flutter
 │   │   ├── AppFrameworkInfo.plist
@@ -42,7 +48,6 @@
 │   ├── Pods
 │   │   ├── Headers
 │   │   ├── Local Podspecs
-│   │   ├── Manifest.lock
 │   │   ├── Pods.xcodeproj
 │   │   └── Target Support Files
 │   ├── Runner
@@ -65,8 +70,17 @@
 │       └── RunnerTests.swift
 ├── lib
 │   ├── app.dart
+│   ├── camera_page.dart
+│   ├── full_screen_image.dart
+│   ├── gallery_page.dart
 │   ├── home_page.dart
-│   └── main.dart
+│   ├── main.dart
+│   ├── services
+│   │   ├── TensorFlowService.dart
+│   │   └── camera_service.dart
+│   ├── services.dart
+│   └── widgets
+│       └── camera_controls.dart
 ├── linux
 │   ├── CMakeLists.txt
 │   ├── flutter
@@ -103,6 +117,9 @@
 │   │   └── xcshareddata
 │   └── RunnerTests
 │       └── RunnerTests.swift
+├── photos
+│   ├── photos.txt
+│   └── unnamed.jpg
 ├── pubspec.lock
 ├── pubspec.yaml
 ├── test
@@ -138,4 +155,4 @@
         ├── win32_window.cpp
         └── win32_window.h
 
-55 directories, 84 files
+60 directories, 96 files

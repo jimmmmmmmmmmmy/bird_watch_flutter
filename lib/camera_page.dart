@@ -1,10 +1,11 @@
-import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:sensors_plus/sensors_plus.dart';
-import 'gallery_page.dart';
+import 'services/camera_service.dart';
+import 'services/tensorflow_service.dart';
+import 'widgets/camera_controls.dart';
 
 class CameraPage extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -16,16 +17,20 @@ class CameraPage extends StatefulWidget {
 }
 
 class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
-  CameraController? _controller;
+  late CameraService _cameraService;
+  late TensorFlowService _tensorFlowService;
   bool _isCameraInitialized = false;
   List<String> photos = [];
   FlashMode _currentFlashMode = FlashMode.off;
   double _rotation = 0;
+  List<Recognition> _recognitions = [];
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _cameraService = CameraService();
+    _tensorFlowService = TensorFlowService();
     _initializeCamera();
     _lockOrientation();
     _initializeSensor();
@@ -34,9 +39,40 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
+    _cameraService.disposeCamera();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
+  }
+
+  Future<void> _initializeCamera() async {
+    if (widget.cameras.isEmpty) {
+      print('No cameras available');
+      return;
+    }
+
+    try {
+      print('Initializing camera...');
+      await _cameraService.initializeCamera(widget.cameras[0]);
+      await _tensorFlowService.loadModel();
+      _cameraService.controller?.startImageStream(_processCameraImage);
+      print('Camera initialized: ${_cameraService.isCameraInitialized}');
+      if (mounted) {
+        setState(() {
+          _isCameraInitialized = _cameraService.isCameraInitialized;
+        });
+      }
+    } catch (e) {
+      print('Error initializing camera: $e');
+    }
+  }
+
+  void _processCameraImage(CameraImage image) async {
+    final recognitions = await _tensorFlowService.runInference(image);
+    if (mounted) {
+      setState(() {
+        _recognitions = recognitions;
+      });
+    }
   }
 
   void _lockOrientation() {
@@ -66,76 +102,30 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> _initializeCamera() async {
-    if (widget.cameras.isEmpty) {
-      print('No cameras available');
-      return;
-    }
-
-    final CameraController cameraController = CameraController(
-      widget.cameras[0],
-      ResolutionPreset.max,
-      enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.jpeg,
-    );
-
-    _controller = cameraController;
-
-    try {
-      await cameraController.initialize();
-      await cameraController.lockCaptureOrientation(DeviceOrientation.portraitUp);
-      if (mounted) {
-        setState(() {
-          _isCameraInitialized = true;
-        });
-      }
-    } on CameraException catch (e) {
-      print('Error initializing camera: $e');
-    }
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final CameraController? cameraController = _controller;
-
-    if (cameraController == null || !cameraController.value.isInitialized) {
-      return;
-    }
-
+    print('App lifecycle state changed to: $state');
     if (state == AppLifecycleState.inactive) {
-      cameraController.dispose();
+      _cameraService.disposeCamera();
+      _isCameraInitialized = false;
     } else if (state == AppLifecycleState.resumed) {
       _initializeCamera();
     }
   }
-
   Future<void> _takePicture() async {
-    final CameraController? cameraController = _controller;
-    if (cameraController == null || !cameraController.value.isInitialized) {
-      print('Error: select a camera first.');
-      return;
-    }
-
-    try {
-      final XFile file = await cameraController.takePicture();
-      
-      // Get the current orientation
+    final file = await _cameraService.takePicture();
+    if (file != null) {
       final deviceOrientation = MediaQuery.of(context).orientation;
-      
-      // Process the image to correct orientation if needed
-      final processedImage = await _processImage(file.path, deviceOrientation);
-      
+      final processedImage = await _processImageFile(file.path, deviceOrientation);
+    
       setState(() {
         photos.insert(0, processedImage);
       });
-    } on CameraException catch (e) {
-      print('Error taking picture: $e');
     }
   }
-
-  Future<String> _processImage(String imagePath, Orientation orientation) async {
-    // You may need to use a package like image to rotate the image if necessary
-    // For now, we'll just return the original path
+  
+  Future<String> _processImageFile(String imagePath, Orientation orientation) async {
+    // Implement image processing logic here if needed
     return imagePath;
   }
 
@@ -175,7 +165,7 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
               break;
           }
         });
-        _controller?.setFlashMode(_currentFlashMode);
+        _cameraService.setFlashMode(_currentFlashMode);
       },
     );
   }
@@ -188,8 +178,12 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
   }
 
   Widget _buildCameraPreview() {
+    final controller = _cameraService.controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
     final size = MediaQuery.of(context).size;
-    final previewSize = _controller!.value.previewSize!;
+    final previewSize = controller.value.previewSize!;
     final previewAspectRatio = previewSize.aspectRatio;
     final screenAspectRatio = size.aspectRatio;
 
@@ -208,7 +202,7 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
         Transform.scale(
           scale: scale,
           child: Center(
-            child: CameraPreview(_controller!),
+            child: CameraPreview(controller),
           ),
         ),
         Positioned(
@@ -216,86 +210,52 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
           left: 16,
           child: _rotatedIcon(_buildFlashModeButton()),
         ),
-        _buildCameraControls(),
-      ],
-    );
-  }
-
-  Widget _buildCameraControls() {
-    return Positioned(
-      bottom: 0,
-      left: 0,
-      right: 0,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _rotatedIcon(_buildGalleryButton()),
-            _buildCaptureButton(),
-            SizedBox(width: 60, height: 60), // Placeholder for symmetry
-          ],
+        CameraControls(
+          onCapture: _takePicture,
+          photos: photos,
+          rotation: _rotation,
         ),
-      ),
-    );
-  }
-
-  Widget _buildGalleryButton() {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => GalleryPage(photos: photos),
+        Positioned(
+          bottom: 100,
+          left: 10,
+          right: 10,
+          child: Container(
+            height: 100,
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: ListView.builder(
+              itemCount: _recognitions.length,
+              itemBuilder: (context, index) {
+                final recognition = _recognitions[index];
+                return ListTile(
+                  title: Text(
+                    recognition.label,
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  subtitle: Text(
+                    'Confidence: ${(recognition.score * 100).toStringAsFixed(2)}%',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                );
+              },
+            ),
           ),
-        );
-      },
-      child: Container(
-        width: 60,
-        height: 60,
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.5),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 2),
         ),
-        child: photos.isNotEmpty
-            ? ClipOval(
-                child: Image.file(
-                  File(photos.first),
-                  fit: BoxFit.cover,
-                ),
-              )
-            : const Icon(Icons.photo_library, color: Colors.white, size: 30),
-      ),
-    );
-  }
-
-  Widget _buildCaptureButton() {
-    return GestureDetector(
-      onTap: _takePicture,
-      child: Container(
-        width: 70,
-        height: 70,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 4),
-        ),
-      ),
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_isCameraInitialized || _controller == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
+    print('Building CameraPage. Camera initialized: $_isCameraInitialized');
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: _buildCameraPreview(),
+        child: _isCameraInitialized
+            ? _buildCameraPreview()
+            : const Center(child: CircularProgressIndicator()),
       ),
     );
   }
